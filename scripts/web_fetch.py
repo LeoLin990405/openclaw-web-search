@@ -27,14 +27,35 @@ Exit codes: 0 ok, 2 usage error, 3 empty content, 4 fetch/network error.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import sys
 import urllib.request
+import zlib
+
+# Content-Type prefixes we treat as text-ish; anything else (pdf, image,
+# octet-stream, zip, audio, video, ...) is rejected as binary.
+_TEXT_HINTS = (
+    "text/", "json", "xml", "html", "javascript", "ecmascript",
+    "x-www-form-urlencoded", "csv", "yaml",
+)
 
 
 def _err(msg: str, code: int) -> None:
     print(f"web_fetch: {msg}", file=sys.stderr)
     sys.exit(code)
+
+
+def _decompress(data: bytes, encoding: str) -> bytes:
+    enc = (encoding or "").lower()
+    if "gzip" in enc:
+        return gzip.decompress(data)
+    if "deflate" in enc:
+        try:
+            return zlib.decompress(data)
+        except zlib.error:
+            return zlib.decompress(data, -zlib.MAX_WBITS)  # raw deflate
+    return data
 
 
 def fetch(url: str, timeout: int) -> tuple[bytes, str]:
@@ -43,11 +64,23 @@ def fetch(url: str, timeout: int) -> tuple[bytes, str]:
         headers={
             "User-Agent": "Mozilla/5.0 (compatible; openclaw-web-fetch/1.0)",
             "Accept": "*/*",
+            "Accept-Encoding": "gzip, deflate",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         ctype = resp.headers.get("Content-Type", "")
-        return resp.read(), ctype
+        data = _decompress(resp.read(), resp.headers.get("Content-Encoding", ""))
+    return data, ctype
+
+
+def _is_binary(ctype: str, raw: bytes) -> bool:
+    lc = ctype.lower()
+    if lc and any(h in lc for h in _TEXT_HINTS):
+        return False
+    if lc and ("application/" in lc or lc.startswith(("image/", "audio/", "video/", "font/"))):
+        return True
+    # no/ambiguous content-type: sniff for NUL bytes in the first chunk
+    return b"\x00" in raw[:1024]
 
 
 def decode(raw: bytes, ctype: str) -> str:
@@ -89,11 +122,22 @@ def to_output(url: str, raw: bytes, ctype: str, fmt: str) -> str:
             text, url=url, output_format=output_fmt,
             include_links=(fmt != "text"), favor_precision=True,
         )
-        if extracted and extracted.strip():
+        if not _meaningful(extracted):
+            # main-content extraction failed (e.g. homepage/index) -> grab all text
+            extracted = trafilatura.html2txt(text)
+        if _meaningful(extracted):
             return extracted.strip()
-        # extraction empty -> fall back to raw text below
+        # still nothing usable -> fall through to raw below
 
     return text.strip()
+
+
+def _meaningful(s: "str | None") -> bool:
+    """True if s has real content (not just whitespace / list bullets)."""
+    if not s:
+        return False
+    import re
+    return len(re.sub(r"[\s\-|*#>_.]", "", s)) >= 30
 
 
 def main(argv: list[str]) -> int:
@@ -115,6 +159,13 @@ def main(argv: list[str]) -> int:
     except Exception as e:  # noqa: BLE001 - surface network/fetch failures cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable
+
+    if _is_binary(ctype, raw):
+        _err(
+            f"binary content ({ctype or 'unknown type'}); web_fetch returns "
+            "text/HTML/JSON only, not PDFs/images/archives",
+            2,
+        )
 
     out = to_output(args.url, raw, ctype, args.format)
     if not out:
