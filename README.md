@@ -10,6 +10,20 @@
 
 ---
 
+## 目录 · Contents
+
+- [What it does · 功能](#what-it-does--功能)
+- [Install · 安装](#install--安装)
+- [Usage · 用法](#usage--用法)
+- [Options · 选项](#options--选项)
+- [Exit codes · 退出码](#exit-codes--退出码)
+- [Behavior notes · 行为说明](#behavior-notes--行为说明)
+- [Project structure · 项目结构](#project-structure--项目结构)
+- [Tests · 测试](#tests--测试)
+- [License · 许可证](#license--许可证)
+
+---
+
 ## What it does · 功能
 
 | Script · 脚本 | Does · 作用 | Backend (auto-installed via `uv`) · 后端（`uv` 自动装） |
@@ -104,6 +118,25 @@ Both `--format json` (search) and `--json` (fetch) return a provenance envelope:
 - **Encoding · 编码** — charset auto-detected (header → `<meta>` → UTF-8 → GBK → latin-1); `gzip`/`deflate` auto-decompressed; non-ASCII URLs percent-encoded (IRI→URI). · 自动探测编码、解压 gzip/deflate、非 ASCII URL 自动编码。
 - **Binary content · 二进制内容** — PDF/images/archives/media are rejected cleanly (exit 2) — no mojibake; use a dedicated parser. · 二进制内容干净报错（退出 2），不吐乱码；请交给对应解析器。
 - **Scope · 适用范围** — `web_fetch` targets article/content pages and data APIs. Homepages and JS-heavy SPAs may extract sparsely — fetch their backing JSON API, or use a browser tool. · 面向文章页/内容页/数据接口；首页与重 JS 的 SPA 抽取稀疏，改打其 JSON 接口或用浏览器工具。
+
+---
+
+## Project structure · 项目结构
+
+```
+openclaw-web-search/
+├── SKILL.md                    # agent-facing guide · agent 使用指南
+├── scripts/
+│   ├── web_search.py           # search → results · 搜索
+│   └── web_fetch.py            # fetch URL → Markdown/JSON · 抓取
+├── references/
+│   └── backends.md             # SearXNG setup + docker-compose · 后端部署
+├── tests/
+│   ├── run_tests.sh            # 60 assertions · 断言测试套件
+│   └── mock_server.py          # deterministic mock server · 确定性 mock
+├── .github/workflows/tests.yml # CI
+└── LICENSE
+```
 
 ---
 
