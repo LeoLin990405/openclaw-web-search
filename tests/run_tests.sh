@@ -30,9 +30,9 @@ echo; echo "### web_search ###"
 SEARXNG_URL="$BASE" run $SEARCH "hello"          ; assert_exit 0 "searxng auto md"
                                                            assert_has "Result 1" "searxng returns results"
 SEARXNG_URL="$BASE" run $SEARCH "hi" -n 2 --format json
-  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null)
+  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)['results']))" 2>/dev/null)
   [ "$CNT" = "2" ] && ok "json -n respected (2)" || no "json -n" "count=$CNT :: ${OUT:0:120}"
-  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert all({'title','url','content'}<=set(x) for x in d)" 2>/dev/null && ok "json schema" || no "json schema" "${OUT:0:120}"
+  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert {'query','backend','count','elapsed_ms','results'}<=set(d) and all({'title','url','content'}<=set(x) for x in d['results'])" 2>/dev/null && ok "json schema" || no "json schema" "${OUT:0:120}"
 run $SEARCH ""                                           ; assert_exit 2 "empty query -> usage"
 run $SEARCH "x" -n 0                                     ; assert_exit 2 "-n 0 -> usage"
 run $SEARCH "x" -n 51                                    ; assert_exit 2 "-n 51 -> usage"
@@ -78,7 +78,7 @@ run $FETCH "$BASE/big" --max-chars 500
 
 echo; echo "### integration: search -> fetch ###"
 SEARXNG_URL="$BASE" run $SEARCH "x" -n 1 --format json
-  U=$(echo "$OUT" | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['url'])" 2>/dev/null)
+  U=$(echo "$OUT" | python3 -c "import json,sys;print(json.load(sys.stdin)['results'][0]['url'])" 2>/dev/null)
   [ -n "$U" ] && ok "extracted url from search ($U)" || no "search->url" "no url"
 
 echo; echo "### concurrency: 5 parallel fetches ###"
@@ -90,10 +90,10 @@ echo; echo "### web_search: extended ###"
 SEARXNG_URL="$BASE" run $SEARCH "__empty__"              ; assert_exit 3 "searxng empty results -> exit 3"
 SEARXNG_URL="$BASE" run $SEARCH "__bad__"                ; assert_exit 4 "searxng invalid JSON -> exit 4"
 SEARXNG_URL="$BASE" run $SEARCH "__many__" -n 10 --format json
-  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null)
+  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)['results']))" 2>/dev/null)
   [ "$CNT" = "10" ] && ok "n caps results (10 of 30)" || no "n cap" "count=$CNT"
 SEARXNG_URL="$BASE" run $SEARCH "__many__" -n 50 --format json
-  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null)
+  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)['results']))" 2>/dev/null)
   [ "$CNT" = "30" ] && ok "n>available returns all (30)" || no "n>avail" "count=$CNT"
 SEARXNG_URL="$BASE" run $SEARCH "__flaky__" --retries 2  ; assert_exit_has 0 "Result 1" "searxng 503x2 recovered via retry"
 SEARXNG_URL="$BASE" run $SEARCH 'a b & c # 中文' --format json
@@ -102,6 +102,9 @@ SEARXNG_URL="$BASE" run $SEARCH "news" --recent w --format json
                                                            assert_has 'tr=week' "--recent w -> searxng time_range=week"
 SEARXNG_URL="$BASE" run $SEARCH "news" --format json      ; assert_has 'q=news;tr="' "no --recent -> empty time_range"
 run $SEARCH "x" --recent bad                              ; assert_exit 2 "invalid --recent -> usage"
+SEARXNG_URL="$BASE" run $SEARCH "hello" -n 3 --format json
+  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert d['backend']=='searxng' and isinstance(d['elapsed_ms'],int) and d['count']==len(d['results'])==3 and d['query']=='hello'" 2>/dev/null \
+    && ok "search json provenance (backend/elapsed/count/query)" || no "search provenance" "${OUT:0:160}"
 
 echo; echo "### web_fetch: encoding matrix ###"
 run $FETCH "$BASE/meta-charset"                          ; assert_exit_has 0 "元数据编码测试" "GBK via <meta> (no header charset)"
@@ -119,7 +122,7 @@ run $FETCH "$BASE/echo-headers" -H "X-Dup: first" -H "X-Dup: second" ; assert_ha
 
 echo; echo "### web_fetch: --json envelope ###"
 run $FETCH "$BASE/html" --json
-  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert d['status']==200 and d['kind']=='markdown' and 'quick brown fox' in d['content'] and {'url','final_url','content_type','chars','truncated'}<=set(d)" 2>/dev/null \
+  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert d['status']==200 and d['kind']=='markdown' and 'quick brown fox' in d['content'] and isinstance(d['elapsed_ms'],int) and {'url','final_url','content_type','chars','truncated','elapsed_ms'}<=set(d)" 2>/dev/null \
     && ok "json envelope shape+content" || no "json envelope" "${OUT:0:160}"
 run $FETCH "$BASE/redirect" --json
   FU=$(echo "$OUT" | python3 -c "import json,sys;print(json.load(sys.stdin)['final_url'])" 2>/dev/null)

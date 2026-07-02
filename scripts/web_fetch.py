@@ -198,11 +198,13 @@ def main(argv: list[str]) -> int:
         k, v = h.split(":", 1)
         headers[k.strip()] = v.strip()
 
+    t0 = time.perf_counter()
     try:
         raw, ctype, final_url, status = fetch(args.url, args.timeout, args.retries, headers)
     except Exception as e:  # noqa: BLE001 - surface network/fetch failures cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     if _is_binary(ctype, raw):
         _err(
@@ -227,6 +229,7 @@ def main(argv: list[str]) -> int:
             "kind": kind,
             "chars": len(out),
             "truncated": truncated,
+            "elapsed_ms": elapsed_ms,
             "content": out,
         }, ensure_ascii=False, indent=2))
     else:

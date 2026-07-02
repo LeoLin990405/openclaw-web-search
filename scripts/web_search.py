@@ -19,7 +19,8 @@ otherwise fall back to DuckDuckGo.
 Usage:
   web_search.py "query"                 # 5 results, markdown
   web_search.py "query" -n 8            # 8 results
-  web_search.py "query" --format json   # machine-readable JSON
+  web_search.py "query" --format json   # provenance envelope {query,backend,count,elapsed_ms,results}
+  web_search.py "query" --recent d      # last-day results only
   web_search.py "query" --backend ddg   # force a backend
 
 Exit codes: 0 ok, 2 usage error, 3 no results, 4 backend/network error.
@@ -116,14 +117,14 @@ def search_ddg(query: str, n: int, timeout: int, recent: "str | None" = None,
 
 def run(query: str, n: int, backend: str, timeout: int, retries: int = 2,
         recent: "str | None" = None, region: str = "wt-wt",
-        safesearch: str = "moderate") -> list[dict]:
-    have_searxng = bool(os.environ.get("SEARXNG_URL"))
+        safesearch: str = "moderate") -> "tuple[list[dict], str]":
+    """Return (results, resolved_backend)."""
     if backend == "auto":
-        backend = "searxng" if have_searxng else "ddg"
+        backend = "searxng" if os.environ.get("SEARXNG_URL") else "ddg"
     if backend == "searxng":
-        return search_searxng(query, n, timeout, retries, recent)
+        return search_searxng(query, n, timeout, retries, recent), backend
     if backend == "ddg":  # ddgs handles its own retries
-        return search_ddg(query, n, timeout, recent, region, safesearch)
+        return search_ddg(query, n, timeout, recent, region, safesearch), backend
     raise ValueError(f"unknown backend: {backend}")
 
 
@@ -164,18 +165,28 @@ def main(argv: list[str]) -> int:
     if args.retries < 0:
         _err("--retries must be >= 0", 2)
 
+    t0 = time.perf_counter()
     try:
-        results = run(args.query, args.num, args.backend, args.timeout, args.retries,
-                      args.recent, args.region, args.safesearch)
+        results, backend = run(args.query, args.num, args.backend, args.timeout,
+                               args.retries, args.recent, args.region, args.safesearch)
     except Exception as e:  # noqa: BLE001 - surface any backend/network failure cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable, keeps type checkers happy
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     if not results:
         _err("no results", 3)
 
     if args.format == "json":
-        print(json.dumps(results, ensure_ascii=False, indent=2))
+        # provenance envelope — symmetric with web_fetch --json
+        print(json.dumps({
+            "query": args.query,
+            "backend": backend,
+            "recent": args.recent,
+            "count": len(results),
+            "elapsed_ms": elapsed_ms,
+            "results": results,
+        }, ensure_ascii=False, indent=2))
     else:
         print(to_markdown(args.query, results), end="")
     return 0
