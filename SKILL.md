@@ -94,7 +94,7 @@ uv run scripts/web_fetch.py "https://d1.weather.com.cn/sk_2d/101020100.html" \
 
 # --json 信封：带溯源元数据（agent 做引用/溯源时用）
 uv run scripts/web_fetch.py "https://arxiv.org/abs/1706.03762" --json
-# -> {url, final_url(重定向后), status, content_type, kind, chars, truncated, content}
+# -> {url, final_url(重定向后), status, content_type, kind, chars, truncated, elapsed_ms, content}
 ```
 
 > 有些数据接口按 `Referer` 防盗链或需要 `Authorization`（如中国天气网 d1、部分行情接口），不带头会 301/403 拿到占位页——用 `-H 'Name: Value'`（可重复）补上即可。
