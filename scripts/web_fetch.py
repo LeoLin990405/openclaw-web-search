@@ -32,8 +32,14 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
+
+# URL-legal ASCII chars kept as-is; '%' kept so existing %XX escapes aren't
+# double-encoded. Everything else (non-ASCII: CJK/Arabic/Cyrillic paths) is
+# percent-encoded so urllib can issue the request (IRI -> URI).
+_URL_SAFE = ":/?#[]@!$&'()*+,;=-._~%"
 
 # HTTP statuses worth retrying (transient server / rate-limit conditions).
 _RETRY_STATUS = {429, 500, 502, 503, 504}
@@ -70,7 +76,7 @@ def fetch(url: str, timeout: int, retries: int = 2, headers: "dict | None" = Non
         "Accept-Encoding": "gzip, deflate",
     }
     hdrs.update(headers or {})  # caller headers win (e.g. Referer, Authorization)
-    req = urllib.request.Request(url, headers=hdrs)
+    req = urllib.request.Request(urllib.parse.quote(url, safe=_URL_SAFE), headers=hdrs)
     for attempt in range(retries + 1):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:

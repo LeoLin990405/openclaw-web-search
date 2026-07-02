@@ -147,6 +147,9 @@ class H(BaseHTTPRequestHandler):
             self._send(200, b'{"served":"as text","n":7}', "text/plain")
         elif p == "/echo-headers":
             self._send(200, json.dumps(dict(self.headers)).encode(), "application/json")
+        elif p == "/unicode":
+            # reached only if a non-ASCII URL was percent-encoded correctly
+            self._send(200, ARTICLE.encode("utf-8"))
         elif p == "/needs-referer":
             if self.headers.get("Referer"):
                 self._send(200, ARTICLE.encode("utf-8"))
