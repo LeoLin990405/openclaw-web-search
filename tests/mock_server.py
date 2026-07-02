@@ -97,6 +97,11 @@ class H(BaseHTTPRequestHandler):
             self._send(200, BIG.encode("utf-8"))
         elif p == "/empty":
             self._send(200)
+        elif p == "/needs-referer":
+            if self.headers.get("Referer"):
+                self._send(200, ARTICLE.encode("utf-8"))
+            else:
+                self._send(403)
         elif p == "/flaky":
             _flaky["hits"] += 1
             if _flaky["hits"] <= 2:

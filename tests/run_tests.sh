@@ -61,6 +61,11 @@ run $FETCH "$BASE/slow" --timeout 2 --retries 0         ; assert_exit 4 "timeout
 run $FETCH "ftp://nope"                                  ; assert_exit 2 "bad scheme -> usage"
 run $FETCH "$BASE/empty"                                 ; assert_exit 3 "empty body -> no content"
 
+echo; echo "### web_fetch: custom headers ###"
+run $FETCH "$BASE/needs-referer"                        ; assert_exit 4 "referer-gated w/o header -> 403"
+run $FETCH "$BASE/needs-referer" -H "Referer: http://x/" ; assert_exit_has 0 "quick brown fox" "referer header unlocks"
+run $FETCH "$BASE/html" -H "badheader"                  ; assert_exit 2 "malformed header -> usage"
+
 echo; echo "### web_fetch: retry on transient 5xx ###"
 run $FETCH "$BASE/flaky" --retries 2                     ; assert_exit_has 0 "quick brown fox" "flaky 503x2 recovered via retry"
 run $FETCH "$BASE/status/503" --retries 0               ; assert_exit 4 "503 with --retries 0 -> fails fast"

@@ -63,15 +63,14 @@ def _decompress(data: bytes, encoding: str) -> bytes:
     return data
 
 
-def fetch(url: str, timeout: int, retries: int = 2) -> tuple[bytes, str]:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; openclaw-web-fetch/1.0)",
-            "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate",
-        },
-    )
+def fetch(url: str, timeout: int, retries: int = 2, headers: "dict | None" = None) -> tuple[bytes, str]:
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (compatible; openclaw-web-fetch/1.0)",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate",
+    }
+    hdrs.update(headers or {})  # caller headers win (e.g. Referer, Authorization)
+    req = urllib.request.Request(url, headers=hdrs)
     for attempt in range(retries + 1):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -168,6 +167,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--max-chars", type=int, default=0, help="truncate output (0 = no limit)")
     ap.add_argument("--timeout", type=int, default=20)
     ap.add_argument("--retries", type=int, default=2, help="retries on 429/5xx/network (default 2)")
+    ap.add_argument(
+        "-H", "--header", action="append", default=[], metavar="'Name: Value'",
+        help="extra request header (repeatable), e.g. -H 'Referer: https://site/' -H 'Authorization: Bearer X'",
+    )
     args = ap.parse_args(argv)
 
     if not args.url.lower().startswith(("http://", "https://")):
@@ -175,8 +178,15 @@ def main(argv: list[str]) -> int:
     if args.retries < 0:
         _err("--retries must be >= 0", 2)
 
+    headers = {}
+    for h in args.header:
+        if ":" not in h:
+            _err(f"bad header (need 'Name: Value'): {h}", 2)
+        k, v = h.split(":", 1)
+        headers[k.strip()] = v.strip()
+
     try:
-        raw, ctype = fetch(args.url, args.timeout, args.retries)
+        raw, ctype = fetch(args.url, args.timeout, args.retries, headers)
     except Exception as e:  # noqa: BLE001 - surface network/fetch failures cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable
