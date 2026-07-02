@@ -1,10 +1,17 @@
 # openclaw-web-search
 
-An [OpenClaw](https://docs.openclaw.ai/) skill that gives agents **web search**
-using only open-source, no-paid-key backends.
+An [OpenClaw](https://docs.openclaw.ai/) skill that gives agents **web search +
+web fetch** using only open-source, no-paid-key backends.
 
-- **SearXNG** (recommended) — self-hosted metasearch, no rate limit, offline-capable.
-- **DuckDuckGo** — zero-config fallback via the open-source [`ddgs`](https://github.com/deedy5/ddgs) library.
+- `web_search.py` — search the web, returns `[{title, url, content}]`.
+  - **SearXNG** (recommended) — self-hosted metasearch, no rate limit, offline-capable.
+  - **DuckDuckGo** — zero-config fallback via the open-source [`ddgs`](https://github.com/deedy5/ddgs) library.
+- `web_fetch.py` — read a URL as clean Markdown (or pretty JSON for data APIs),
+  via open-source [`trafilatura`](https://github.com/adbar/trafilatura).
+
+Typical loop: **search** for authoritative links → **fetch** the link to get the
+actual content/values (weather, stock quotes, latest data) that search snippets
+don't contain.
 
 ## Install
 
@@ -20,16 +27,22 @@ Python deps). Plain `python3 ≥ 3.10` also works — see [SKILL.md](SKILL.md).
 ## Use
 
 ```bash
-# DuckDuckGo (no setup)
-uv run ~/.openclaw/skills/web-search/scripts/web_search.py "your query" -n 5
+S=~/.openclaw/skills/web-search/scripts
 
-# SearXNG (set your instance)
+# search — DuckDuckGo (no setup)
+uv run $S/web_search.py "your query" -n 5
+
+# search — SearXNG (set your instance)
 export SEARXNG_URL="http://localhost:8080"
-uv run ~/.openclaw/skills/web-search/scripts/web_search.py "your query" --format json
+uv run $S/web_search.py "your query" --format json
+
+# fetch — read a result's page as Markdown (or JSON for data APIs)
+uv run $S/web_fetch.py "https://example.com/article"
 ```
 
-Options: `-n/--num` (1–50), `--format md|json`, `--backend auto|searxng|ddg`,
-`--timeout`. Exit codes: `0` ok, `2` usage, `3` no results, `4` backend error.
+`web_search` options: `-n/--num` (1–50), `--format md|json`, `--backend auto|searxng|ddg`, `--timeout`.
+`web_fetch` options: `--format md|text`, `--max-chars`, `--timeout`.
+Exit codes (both): `0` ok, `2` usage, `3` no results/empty, `4` backend/network error.
 
 See [SKILL.md](SKILL.md) and [references/backends.md](references/backends.md) for
 details, SearXNG setup, and a docker-compose snippet.

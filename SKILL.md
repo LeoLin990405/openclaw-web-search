@@ -1,7 +1,7 @@
 ---
 name: web-search
-version: 1.0.0
-description: "联网搜索：用开源、免付费-key 的后端做实时网页搜索，返回干净的标题/URL/摘要列表供 agent 消费。后端优先自托管 SearXNG（设 SEARXNG_URL，全离线、无量限、聚合多引擎），未配置时自动回退 DuckDuckGo（`ddgs` 开源库，零配置免 key）。当用户/任务需要查询实时信息、当前事件、最新文档、事实核查、查某个库/产品/人/公司的公开资料、或 agent 需要在生成前先联网检索证据时使用。只做「搜索并返回结果列表」；抓取单个网页全文请另用 fetch/browse 类能力。"
+version: 1.1.0
+description: "联网搜索 + 抓取：用开源、免付费-key 的后端做实时网页搜索并读取网页正文，供 agent 消费。search 返回干净的标题/URL/摘要列表（后端优先自托管 SearXNG，设 SEARXNG_URL 全离线无量限，未配置自动回退 DuckDuckGo 开源库零配置免 key）；fetch 把某条结果的网页抓成干净 Markdown（或 JSON API 直出 JSON）。当用户/任务需要查询实时信息、当前事件、天气、股价/行情、最新文档、事实核查、查某个库/产品/人/公司的公开资料，或 agent 需要在生成前先联网检索证据、再读进具体页面拿到确切数值时使用。典型闭环：先 web_search 拿权威链接 → 再 web_fetch 读该链接正文/接口拿实际数据。"
 metadata:
   requires:
     bins: ["uv"]
@@ -14,11 +14,20 @@ metadata:
 
 # web-search
 
-给 OpenClaw agent 提供**联网搜索**能力。全开源、无需任何付费 API key。
+给 OpenClaw agent 提供**联网搜索 + 网页抓取**能力。全开源、无需任何付费 API key。
 
-## 核心概念
+两个脚本，配成完整闭环：
 
-- 单一入口脚本 [`scripts/web_search.py`](scripts/web_search.py)，用 `uv run` 执行会自动装依赖（`ddgs`），无需预装。
+| 脚本 | 作用 | 依赖(uv 自动装) |
+|---|---|---|
+| [`scripts/web_search.py`](scripts/web_search.py) | 搜索 → 返回 `[{title,url,content}]` | `ddgs` |
+| [`scripts/web_fetch.py`](scripts/web_fetch.py) | 抓某个 URL → 干净 Markdown / JSON | `trafilatura` |
+
+**典型用法**：`web_search` 拿到权威链接 → `web_fetch` 读该链接的正文或接口，拿到确切数值（天气、股价、最新数据等搜索摘要给不了的东西）。
+
+## 核心概念（search）
+
+- 入口脚本 [`scripts/web_search.py`](scripts/web_search.py)，用 `uv run` 执行会自动装依赖（`ddgs`），无需预装。
 - 两个后端，均开源、免 key：
   - **searxng**（推荐生产）：查询自托管 [SearXNG](https://github.com/searxng/searxng) 的 JSON API。无量限、可完全离线、聚合 Google/Bing/DDG 等多引擎。设环境变量 `SEARXNG_URL` 即启用。
   - **ddg**（默认回退）：通过开源 `ddgs` 库走 DuckDuckGo。零配置、免 key，适合快速使用或没有 SearXNG 时。
@@ -58,8 +67,25 @@ uv run scripts/web_search.py "..."               # 自动走 SearXNG
 
 Agent 应根据退出码决策：`3` 可换关键词重搜；`4` 可提示检查 `SEARXNG_URL` 或网络。
 
+## 抓取（fetch）
+
+读取某个 URL 的正文，供 agent 拿搜索摘要给不了的确切内容/数值：
+
+```bash
+# 网页文章 -> 干净 Markdown（去导航/广告/模板）
+uv run scripts/web_fetch.py "https://example.com/article"
+
+# 数据接口 -> 直出 JSON（天气/行情等 API）
+uv run scripts/web_fetch.py "https://push2.eastmoney.com/api/qt/stock/get?..."
+
+# 纯文本 / 截断长页
+uv run scripts/web_fetch.py "URL" --format text --max-chars 8000
+```
+
+- JSON 响应 → 美化 JSON；HTML → trafilatura 抽正文转 Markdown（抽空自动回退原始文本）；自动探测编码（含中文站常见 GBK）。
+- 退出码同上：`0` 成功 / `2` 用法 / `3` 空内容 / `4` 抓取失败。
+
 ## 备注
 
-- 不带 `uv` 也能跑：`python3 scripts/web_search.py ...`，但 `ddg` 后端需先 `pip install ddgs`；`searxng` 后端仅用标准库，任意 Python 3.10+ 即可。
-- 本 skill 只负责「搜索 → 结果列表」。要读取某条结果的网页全文，交给 fetch/browse 类能力。
+- 不带 `uv` 也能跑：`python3 scripts/web_search.py ...` / `web_fetch.py ...`，但需先 `pip install ddgs trafilatura`；`web_search` 的 `searxng` 后端仅用标准库，任意 Python 3.10+ 即可。
 - 后端细节、SearXNG 部署、返回字段说明见 [`references/backends.md`](references/backends.md)。
