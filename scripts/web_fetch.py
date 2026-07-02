@@ -69,7 +69,7 @@ def _decompress(data: bytes, encoding: str) -> bytes:
     return data
 
 
-def fetch(url: str, timeout: int, retries: int = 2, headers: "dict | None" = None) -> tuple[bytes, str]:
+def fetch(url: str, timeout: int, retries: int = 2, headers: "dict | None" = None) -> "tuple[bytes, str, str, int]":
     hdrs = {
         "User-Agent": "Mozilla/5.0 (compatible; openclaw-web-fetch/1.0)",
         "Accept": "*/*",
@@ -82,7 +82,9 @@ def fetch(url: str, timeout: int, retries: int = 2, headers: "dict | None" = Non
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 ctype = resp.headers.get("Content-Type", "")
                 data = _decompress(resp.read(), resp.headers.get("Content-Encoding", ""))
-            return data, ctype
+                final_url = resp.geturl()
+                status = resp.status
+            return data, ctype, final_url, status
         except urllib.error.HTTPError as e:
             if e.code in _RETRY_STATUS and attempt < retries:
                 time.sleep(0.5 * (attempt + 1))
@@ -121,13 +123,14 @@ def decode(raw: bytes, ctype: str) -> str:
     return raw.decode("utf-8", "replace")
 
 
-def to_output(url: str, raw: bytes, ctype: str, fmt: str) -> str:
+def to_output(url: str, raw: bytes, ctype: str, fmt: str) -> "tuple[str, str]":
+    """Return (content, kind) where kind is 'json' | 'markdown' | 'text'."""
     lc = ctype.lower()
     text = decode(raw, ctype)
 
     if "json" in lc or (text.lstrip()[:1] in "{[" and "html" not in lc):
         try:
-            return json.dumps(json.loads(text), ensure_ascii=False, indent=2)
+            return json.dumps(json.loads(text), ensure_ascii=False, indent=2), "json"
         except json.JSONDecodeError:
             pass  # not valid JSON, fall through
 
@@ -149,10 +152,10 @@ def to_output(url: str, raw: bytes, ctype: str, fmt: str) -> str:
             # main-content extraction failed (e.g. homepage/index) -> grab all text
             extracted = trafilatura.html2txt(text)
         if _meaningful(extracted):
-            return extracted.strip()
+            return extracted.strip(), ("text" if fmt == "text" else "markdown")
         # still nothing usable -> fall through to raw below
 
-    return text.strip()
+    return text.strip(), "text"
 
 
 def _meaningful(s: "str | None") -> bool:
@@ -177,6 +180,10 @@ def main(argv: list[str]) -> int:
         "-H", "--header", action="append", default=[], metavar="'Name: Value'",
         help="extra request header (repeatable), e.g. -H 'Referer: https://site/' -H 'Authorization: Bearer X'",
     )
+    ap.add_argument(
+        "--json", action="store_true",
+        help="emit a JSON envelope with provenance: {url, final_url, status, content_type, kind, chars, truncated, content}",
+    )
     args = ap.parse_args(argv)
 
     if not args.url.lower().startswith(("http://", "https://")):
@@ -192,7 +199,7 @@ def main(argv: list[str]) -> int:
         headers[k.strip()] = v.strip()
 
     try:
-        raw, ctype = fetch(args.url, args.timeout, args.retries, headers)
+        raw, ctype, final_url, status = fetch(args.url, args.timeout, args.retries, headers)
     except Exception as e:  # noqa: BLE001 - surface network/fetch failures cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable
@@ -204,12 +211,28 @@ def main(argv: list[str]) -> int:
             2,
         )
 
-    out = to_output(args.url, raw, ctype, args.format)
+    out, kind = to_output(args.url, raw, ctype, args.format)
     if not out:
         _err("empty content", 3)
-    if args.max_chars and len(out) > args.max_chars:
-        out = out[: args.max_chars] + f"\n\n[... truncated at {args.max_chars} chars]"
-    print(out)
+    truncated = bool(args.max_chars and len(out) > args.max_chars)
+    if truncated:
+        out = out[: args.max_chars]
+
+    if args.json:
+        print(json.dumps({
+            "url": args.url,
+            "final_url": final_url,
+            "status": status,
+            "content_type": ctype,
+            "kind": kind,
+            "chars": len(out),
+            "truncated": truncated,
+            "content": out,
+        }, ensure_ascii=False, indent=2))
+    else:
+        if truncated:
+            out += f"\n\n[... truncated at {args.max_chars} chars]"
+        print(out)
     return 0
 
 

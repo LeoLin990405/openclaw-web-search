@@ -14,5 +14,5 @@ jobs:
         uses: astral-sh/setup-uv@v5
       - name: Byte-compile scripts
         run: python3 -m py_compile scripts/web_search.py scripts/web_fetch.py tests/mock_server.py
-      - name: Run test suite (55 deterministic assertions, no network)
+      - name: Run test suite (59 deterministic assertions, no network)
         run: bash tests/run_tests.sh

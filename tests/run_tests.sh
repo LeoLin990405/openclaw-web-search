@@ -117,6 +117,20 @@ run $FETCH "$BASE/echo-headers"                          ; assert_has "openclaw-
 run $FETCH "$BASE/echo-headers" -H "X-Test: a: b"        ; assert_has '"a: b"' "header value keeps colons"
 run $FETCH "$BASE/echo-headers" -H "X-Dup: first" -H "X-Dup: second" ; assert_has "second" "duplicate header last wins"
 
+echo; echo "### web_fetch: --json envelope ###"
+run $FETCH "$BASE/html" --json
+  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert d['status']==200 and d['kind']=='markdown' and 'quick brown fox' in d['content'] and {'url','final_url','content_type','chars','truncated'}<=set(d)" 2>/dev/null \
+    && ok "json envelope shape+content" || no "json envelope" "${OUT:0:160}"
+run $FETCH "$BASE/redirect" --json
+  FU=$(echo "$OUT" | python3 -c "import json,sys;print(json.load(sys.stdin)['final_url'])" 2>/dev/null)
+  case "$FU" in */html) ok "json final_url resolved through redirect ($FU)";; *) no "json final_url" "got $FU";; esac
+run $FETCH "$BASE/big" --json --max-chars 300
+  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert d['truncated'] is True and d['chars']==300" 2>/dev/null \
+    && ok "json truncated flag + chars" || no "json truncated" "${OUT:0:160}"
+run $FETCH "$BASE/json" --json
+  echo "$OUT" | python3 -c "import json,sys;d=json.load(sys.stdin);assert d['kind']=='json'" 2>/dev/null \
+    && ok "json envelope kind=json for API" || no "json kind" "${OUT:0:160}"
+
 echo; echo "### web_fetch: max-chars boundaries ###"
 run $FETCH "$BASE/big" --max-chars 0
   [ "${#OUT}" -gt 1000 ] && ok "max-chars 0 = no limit (${#OUT} chars)" || no "max-chars 0" "len=${#OUT}"

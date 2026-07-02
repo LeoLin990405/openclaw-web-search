@@ -43,14 +43,14 @@ uv run $S/web_fetch.py "https://example.com/article"
 ```
 
 `web_search` options: `-n/--num` (1–50), `--format md|json`, `--backend auto|searxng|ddg`, `--timeout`, `--retries`, `--recent d|w|m|y` (time filter), `--region` (ddg, e.g. `us-en`), `--safesearch on|moderate|off`.
-`web_fetch` options: `--format md|text`, `--max-chars`, `--timeout`, `--retries`, `-H/--header` (repeatable, for Referer/Authorization/Cookie-gated endpoints).
+`web_fetch` options: `--format md|text`, `--max-chars`, `--timeout`, `--retries`, `-H/--header` (repeatable, for Referer/Authorization/Cookie-gated endpoints), `--json` (envelope with `final_url`/`status`/`content_type`/`kind` for provenance).
 Exit codes (both): `0` ok, `2` usage/unsupported, `3` no results/empty, `4` backend/network error.
 Transient failures (429/5xx/network) are retried automatically (default 2, `--retries 0` to disable).
 
 ## Tests
 
 ```bash
-bash tests/run_tests.sh   # 55 deterministic assertions against a local mock server
+bash tests/run_tests.sh   # 59 deterministic assertions against a local mock server
 ```
 
 Covers both scripts: backends, JSON/Markdown output, `-n` bounds, GBK decode,
