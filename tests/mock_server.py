@@ -22,7 +22,7 @@ import sys
 import time
 import zlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 SEARX = {"results": [
     {"title": f"Result {i}", "url": f"https://ex.test/{i}", "content": f"snippet number {i}"}
@@ -45,6 +45,15 @@ BIG = "<!doctype html><html><body><article><h1>Big</h1>" + \
 
 # /flaky: 503 for the first 2 hits, then 200 — exercises retry logic.
 _flaky = {"hits": 0}
+# /search?q=__flaky__ : SearXNG that 503s twice then succeeds (search-side retry).
+_search_flaky = {"hits": 0}
+
+
+def _searx_results(n):
+    return {"results": [
+        {"title": f"Result {i}", "url": f"https://ex.test/{i}", "content": f"snippet number {i}"}
+        for i in range(1, n + 1)
+    ]}
 
 
 class H(BaseHTTPRequestHandler):
@@ -63,9 +72,26 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self):
-        p = urlparse(self.path).path
-        if p == "/search":  # SearXNG convention: {base}/search
-            self._send(200, json.dumps(SEARX).encode(), "application/json")
+        parsed = urlparse(self.path)
+        p = parsed.path
+        if p == "/search":  # SearXNG convention: {base}/search — branch on q sentinel
+            q = (parse_qs(parsed.query).get("q") or [""])[0]
+            if "__empty__" in q:
+                self._send(200, json.dumps({"results": []}).encode(), "application/json")
+            elif "__bad__" in q:
+                self._send(200, b"<<not json at all>>", "application/json")
+            elif "__many__" in q:
+                self._send(200, json.dumps(_searx_results(30)).encode(), "application/json")
+            elif "__flaky__" in q:
+                _search_flaky["hits"] += 1
+                if _search_flaky["hits"] <= 2:
+                    self._send(503)
+                else:
+                    self._send(200, json.dumps(_searx_results(5)).encode(), "application/json")
+            else:
+                r = _searx_results(5)
+                r["results"][0]["content"] = f"q={q}"  # echo query for encoding checks
+                self._send(200, json.dumps(r).encode(), "application/json")
         elif p == "/json":
             self._send(200, json.dumps({"a": 1, "list": [1, 2, 3]}).encode(), "application/json")
         elif p == "/html":
@@ -97,6 +123,30 @@ class H(BaseHTTPRequestHandler):
             self._send(200, BIG.encode("utf-8"))
         elif p == "/empty":
             self._send(200)
+        elif p == "/status/204":
+            self._send(204)
+        elif p == "/meta-charset":
+            # header says no charset; charset only in <meta> — body is GBK
+            html = ("<!doctype html><html><head><meta charset='gbk'>"
+                    "<title>元</title></head><body><article><h1>元数据编码测试</h1>"
+                    "<p>这是一段足够长的中文正文用来让抽取器认定为主要内容并成功返回可读文本内容。</p>"
+                    "</article></body></html>")
+            self._send(200, html.encode("gbk", "replace"), "text/html")  # no charset in header
+        elif p == "/nocharset-utf8":
+            # no charset anywhere; utf-8 Chinese body should decode via fallback
+            html = ("<!doctype html><html><body><article><h1>无声明编码</h1>"
+                    "<p>这是一段没有任何字符集声明的中文正文，内容足够长以便被抽取器"
+                    "识别为主要正文并成功返回可读的中文文本供断言校验使用。</p>"
+                    "</article></body></html>")
+            self._send(200, html.encode("utf-8"), "text/html")
+        elif p == "/latin1":
+            self._send(200, "café résumé naïve".encode("latin-1"),
+                       "text/plain; charset=iso-8859-1")
+        elif p == "/jsontext":
+            # JSON body served as text/plain -> should still be detected & pretty-printed
+            self._send(200, b'{"served":"as text","n":7}', "text/plain")
+        elif p == "/echo-headers":
+            self._send(200, json.dumps(dict(self.headers)).encode(), "application/json")
         elif p == "/needs-referer":
             if self.headers.get("Referer"):
                 self._send(200, ARTICLE.encode("utf-8"))

@@ -48,7 +48,7 @@ Transient failures (429/5xx/network) are retried automatically (default 2, `--re
 ## Tests
 
 ```bash
-bash tests/run_tests.sh   # 34 deterministic assertions against a local mock server
+bash tests/run_tests.sh   # 50 deterministic assertions against a local mock server
 ```
 
 Covers both scripts: backends, JSON/Markdown output, `-n` bounds, GBK decode,

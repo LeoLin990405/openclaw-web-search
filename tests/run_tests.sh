@@ -86,6 +86,36 @@ pids=""; for i in 1 2 3 4 5; do ($FETCH "$BASE/html" >/dev/null 2>&1) & pids="$p
 cfail=0; for pid in $pids; do wait $pid || cfail=$((cfail+1)); done
 [ "$cfail" = 0 ] && ok "5 parallel fetches all ok" || no "concurrency" "$cfail failed"
 
+echo; echo "### web_search: extended ###"
+SEARXNG_URL="$BASE" run $SEARCH "__empty__"              ; assert_exit 3 "searxng empty results -> exit 3"
+SEARXNG_URL="$BASE" run $SEARCH "__bad__"                ; assert_exit 4 "searxng invalid JSON -> exit 4"
+SEARXNG_URL="$BASE" run $SEARCH "__many__" -n 10 --format json
+  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null)
+  [ "$CNT" = "10" ] && ok "n caps results (10 of 30)" || no "n cap" "count=$CNT"
+SEARXNG_URL="$BASE" run $SEARCH "__many__" -n 50 --format json
+  CNT=$(echo "$OUT" | python3 -c "import json,sys;print(len(json.load(sys.stdin)))" 2>/dev/null)
+  [ "$CNT" = "30" ] && ok "n>available returns all (30)" || no "n>avail" "count=$CNT"
+SEARXNG_URL="$BASE" run $SEARCH "__flaky__" --retries 2  ; assert_exit_has 0 "Result 1" "searxng 503x2 recovered via retry"
+SEARXNG_URL="$BASE" run $SEARCH 'a b & c # 中文' --format json
+                                                           assert_has 'q=a b & c # 中文' "query special chars url-encoded round-trip"
+
+echo; echo "### web_fetch: encoding matrix ###"
+run $FETCH "$BASE/meta-charset"                          ; assert_exit_has 0 "元数据编码测试" "GBK via <meta> (no header charset)"
+run $FETCH "$BASE/nocharset-utf8"                        ; assert_exit_has 0 "没有任何字符集声明的中文正文" "utf-8 with no charset declared"
+run $FETCH "$BASE/latin1"                                ; assert_exit_has 0 "café résumé" "latin-1 header charset"
+run $FETCH "$BASE/jsontext"                              ; assert_exit_has 0 '"served"' "JSON served as text/plain -> pretty JSON"
+
+echo; echo "### web_fetch: 204 & headers ###"
+run $FETCH "$BASE/status/204"                            ; assert_exit 3 "204 No Content -> empty"
+run $FETCH "$BASE/echo-headers"                          ; assert_has "openclaw-web-fetch" "default User-Agent sent"
+run $FETCH "$BASE/echo-headers" -H "X-Test: a: b"        ; assert_has '"a: b"' "header value keeps colons"
+run $FETCH "$BASE/echo-headers" -H "X-Dup: first" -H "X-Dup: second" ; assert_has "second" "duplicate header last wins"
+
+echo; echo "### web_fetch: max-chars boundaries ###"
+run $FETCH "$BASE/big" --max-chars 0
+  [ "${#OUT}" -gt 1000 ] && ok "max-chars 0 = no limit (${#OUT} chars)" || no "max-chars 0" "len=${#OUT}"
+run $FETCH "$BASE/html" --max-chars 100000               ; assert_exit_has 0 "quick brown fox" "max-chars > content = untouched"
+
 echo; echo "========================================"
 echo "  PASS=$PASS  FAIL=$FAIL"
 echo "========================================"
