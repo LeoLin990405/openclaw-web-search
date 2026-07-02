@@ -98,6 +98,10 @@ SEARXNG_URL="$BASE" run $SEARCH "__many__" -n 50 --format json
 SEARXNG_URL="$BASE" run $SEARCH "__flaky__" --retries 2  ; assert_exit_has 0 "Result 1" "searxng 503x2 recovered via retry"
 SEARXNG_URL="$BASE" run $SEARCH 'a b & c # 中文' --format json
                                                            assert_has 'q=a b & c # 中文' "query special chars url-encoded round-trip"
+SEARXNG_URL="$BASE" run $SEARCH "news" --recent w --format json
+                                                           assert_has 'tr=week' "--recent w -> searxng time_range=week"
+SEARXNG_URL="$BASE" run $SEARCH "news" --format json      ; assert_has 'q=news;tr="' "no --recent -> empty time_range"
+run $SEARCH "x" --recent bad                              ; assert_exit 2 "invalid --recent -> usage"
 
 echo; echo "### web_fetch: encoding matrix ###"
 run $FETCH "$BASE/meta-charset"                          ; assert_exit_has 0 "元数据编码测试" "GBK via <meta> (no header charset)"

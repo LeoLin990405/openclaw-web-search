@@ -1,6 +1,6 @@
 ---
 name: web-search
-version: 1.4.2
+version: 1.5.0
 description: "联网搜索 + 抓取：用开源、免付费-key 的后端做实时网页搜索并读取网页正文，供 agent 消费。search 返回干净的标题/URL/摘要列表（后端优先自托管 SearXNG，设 SEARXNG_URL 全离线无量限，未配置自动回退 DuckDuckGo 开源库零配置免 key）；fetch 把某条结果的网页抓成干净 Markdown（或 JSON API 直出 JSON）。当用户/任务需要查询实时信息、当前事件、天气、股价/行情、最新文档、事实核查、查某个库/产品/人/公司的公开资料，或 agent 需要在生成前先联网检索证据、再读进具体页面拿到确切数值时使用。典型闭环：先 web_search 拿权威链接 → 再 web_fetch 读该链接正文/接口拿实际数据。"
 metadata:
   requires:
@@ -45,7 +45,14 @@ uv run scripts/web_search.py "latest Claude model pricing" -n 8 --format json
 
 # 强制某后端 / 调超时
 uv run scripts/web_search.py "SearXNG docker compose" --backend ddg --timeout 20
+
+# 时效过滤（查"今天/本周的新闻"必用）+ 地域
+uv run scripts/web_search.py "东京 天气" --recent d --region jp-jp
+uv run scripts/web_search.py "breaking news" --recent w --region us-en
 ```
+
+- `--recent d|w|m|y`：只要最近一天/周/月/年的结果（两后端通用：ddg→timelimit，searxng→time_range）。
+- `--region`（ddg）：如 `us-en` / `cn-zh` / `jp-jp`，默认 `wt-wt`（全球）；`--safesearch on|moderate|off`。
 
 启用 SearXNG（推荐，无量限、更稳）：
 
@@ -96,7 +103,7 @@ uv run scripts/web_fetch.py "https://d1.weather.com.cn/sk_2d/101020100.html" \
 ## 健壮性与测试
 
 - **自动重试**：两个脚本对瞬时故障（429 / 5xx / 网络抖动 / 超时）默认重试 2 次（退避），`--retries 0` 关闭。适合常驻 agent。
-- **测试套件**：`bash tests/run_tests.sh` —— 52 条确定性断言，全部打本地 mock 服务器，无需联网。覆盖后端、输出格式、参数边界、GBK、gzip/deflate、二进制拒绝、HTTP 错误、重定向、超时、重试恢复、截断、search→fetch 集成、并发。
+- **测试套件**：`bash tests/run_tests.sh` —— 55 条确定性断言，全部打本地 mock 服务器，无需联网。覆盖后端、输出格式、参数边界、GBK、gzip/deflate、二进制拒绝、HTTP 错误、重定向、超时、重试恢复、截断、search→fetch 集成、并发。
 
 ## 备注
 

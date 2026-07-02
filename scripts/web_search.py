@@ -44,7 +44,12 @@ def _err(msg: str, code: int) -> "None":
     sys.exit(code)
 
 
-def search_searxng(query: str, n: int, timeout: int, retries: int = 2) -> list[dict]:
+# --recent maps to each backend's own time-filter vocabulary.
+_TIME_RANGE = {"d": "day", "w": "week", "m": "month", "y": "year"}
+
+
+def search_searxng(query: str, n: int, timeout: int, retries: int = 2,
+                   recent: "str | None" = None) -> list[dict]:
     base = os.environ.get("SEARXNG_URL", "").rstrip("/")
     if not base:
         raise RuntimeError("SEARXNG_URL not set")
@@ -56,6 +61,8 @@ def search_searxng(query: str, n: int, timeout: int, retries: int = 2) -> list[d
     lang = os.environ.get("SEARXNG_LANGUAGE")
     if lang:
         params["language"] = lang
+    if recent:
+        params["time_range"] = _TIME_RANGE[recent]
     url = f"{base}/search?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "openclaw-web-search/1.0"})
     for attempt in range(retries + 1):
@@ -83,7 +90,8 @@ def search_searxng(query: str, n: int, timeout: int, retries: int = 2) -> list[d
     return out
 
 
-def search_ddg(query: str, n: int, timeout: int) -> list[dict]:
+def search_ddg(query: str, n: int, timeout: int, recent: "str | None" = None,
+               region: str = "wt-wt", safesearch: str = "moderate") -> list[dict]:
     try:
         from ddgs import DDGS  # package renamed: ddgs (was duckduckgo_search)
     except ImportError:
@@ -96,7 +104,8 @@ def search_ddg(query: str, n: int, timeout: int) -> list[dict]:
             )
     out = []
     with DDGS(timeout=timeout) as ddgs:
-        for r in ddgs.text(query, max_results=n):
+        for r in ddgs.text(query, region=region, safesearch=safesearch,
+                           timelimit=recent, max_results=n):
             out.append({
                 "title": (r.get("title") or "").strip(),
                 "url": r.get("href") or r.get("url") or "",
@@ -105,14 +114,16 @@ def search_ddg(query: str, n: int, timeout: int) -> list[dict]:
     return out
 
 
-def run(query: str, n: int, backend: str, timeout: int, retries: int = 2) -> list[dict]:
+def run(query: str, n: int, backend: str, timeout: int, retries: int = 2,
+        recent: "str | None" = None, region: str = "wt-wt",
+        safesearch: str = "moderate") -> list[dict]:
     have_searxng = bool(os.environ.get("SEARXNG_URL"))
     if backend == "auto":
         backend = "searxng" if have_searxng else "ddg"
     if backend == "searxng":
-        return search_searxng(query, n, timeout, retries)
-    if backend == "ddg":
-        return search_ddg(query, n, timeout)  # ddgs handles its own retries
+        return search_searxng(query, n, timeout, retries, recent)
+    if backend == "ddg":  # ddgs handles its own retries
+        return search_ddg(query, n, timeout, recent, region, safesearch)
     raise ValueError(f"unknown backend: {backend}")
 
 
@@ -138,6 +149,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--backend", choices=["auto", "searxng", "ddg"], default="auto")
     ap.add_argument("--timeout", type=int, default=15, help="per-request timeout seconds")
     ap.add_argument("--retries", type=int, default=2, help="SearXNG retries on 429/5xx/network (default 2)")
+    ap.add_argument("--recent", choices=["d", "w", "m", "y"],
+                    help="only results from the last day/week/month/year")
+    ap.add_argument("--region", default="wt-wt",
+                    help="ddg region, e.g. us-en, cn-zh, jp-jp (default wt-wt)")
+    ap.add_argument("--safesearch", choices=["on", "moderate", "off"], default="moderate",
+                    help="ddg safe search level (default moderate)")
     args = ap.parse_args(argv)
 
     if not args.query.strip():
@@ -148,7 +165,8 @@ def main(argv: list[str]) -> int:
         _err("--retries must be >= 0", 2)
 
     try:
-        results = run(args.query, args.num, args.backend, args.timeout, args.retries)
+        results = run(args.query, args.num, args.backend, args.timeout, args.retries,
+                      args.recent, args.region, args.safesearch)
     except Exception as e:  # noqa: BLE001 - surface any backend/network failure cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable, keeps type checkers happy

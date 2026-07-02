@@ -89,8 +89,10 @@ class H(BaseHTTPRequestHandler):
                 else:
                     self._send(200, json.dumps(_searx_results(5)).encode(), "application/json")
             else:
+                qs = parse_qs(parsed.query)
+                tr = (qs.get("time_range") or [""])[0]
                 r = _searx_results(5)
-                r["results"][0]["content"] = f"q={q}"  # echo query for encoding checks
+                r["results"][0]["content"] = f"q={q};tr={tr}"  # echo for encoding/time checks
                 self._send(200, json.dumps(r).encode(), "application/json")
         elif p == "/json":
             self._send(200, json.dumps({"a": 1, "list": [1, 2, 3]}).encode(), "application/json")
