@@ -40,9 +40,20 @@ uv run $S/web_search.py "your query" --format json
 uv run $S/web_fetch.py "https://example.com/article"
 ```
 
-`web_search` options: `-n/--num` (1–50), `--format md|json`, `--backend auto|searxng|ddg`, `--timeout`.
-`web_fetch` options: `--format md|text`, `--max-chars`, `--timeout`.
-Exit codes (both): `0` ok, `2` usage, `3` no results/empty, `4` backend/network error.
+`web_search` options: `-n/--num` (1–50), `--format md|json`, `--backend auto|searxng|ddg`, `--timeout`, `--retries`.
+`web_fetch` options: `--format md|text`, `--max-chars`, `--timeout`, `--retries`.
+Exit codes (both): `0` ok, `2` usage/unsupported, `3` no results/empty, `4` backend/network error.
+Transient failures (429/5xx/network) are retried automatically (default 2, `--retries 0` to disable).
+
+## Tests
+
+```bash
+bash tests/run_tests.sh   # 31 deterministic assertions against a local mock server
+```
+
+Covers both scripts: backends, JSON/Markdown output, `-n` bounds, GBK decode,
+gzip/deflate, binary rejection, HTTP errors, redirects, timeouts, retry recovery,
+truncation, search→fetch integration, and concurrent calls. No network required.
 
 See [SKILL.md](SKILL.md) and [references/backends.md](references/backends.md) for
 details, SearXNG setup, and a docker-compose snippet.

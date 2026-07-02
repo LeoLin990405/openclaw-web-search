@@ -30,8 +30,13 @@ import argparse
 import gzip
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
 import zlib
+
+# HTTP statuses worth retrying (transient server / rate-limit conditions).
+_RETRY_STATUS = {429, 500, 502, 503, 504}
 
 # Content-Type prefixes we treat as text-ish; anything else (pdf, image,
 # octet-stream, zip, audio, video, ...) is rejected as binary.
@@ -58,7 +63,7 @@ def _decompress(data: bytes, encoding: str) -> bytes:
     return data
 
 
-def fetch(url: str, timeout: int) -> tuple[bytes, str]:
+def fetch(url: str, timeout: int, retries: int = 2) -> tuple[bytes, str]:
     req = urllib.request.Request(
         url,
         headers={
@@ -67,10 +72,23 @@ def fetch(url: str, timeout: int) -> tuple[bytes, str]:
             "Accept-Encoding": "gzip, deflate",
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        ctype = resp.headers.get("Content-Type", "")
-        data = _decompress(resp.read(), resp.headers.get("Content-Encoding", ""))
-    return data, ctype
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                ctype = resp.headers.get("Content-Type", "")
+                data = _decompress(resp.read(), resp.headers.get("Content-Encoding", ""))
+            return data, ctype
+        except urllib.error.HTTPError as e:
+            if e.code in _RETRY_STATUS and attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 def _is_binary(ctype: str, raw: bytes) -> bool:
@@ -149,13 +167,16 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--format", choices=["md", "text"], default="md")
     ap.add_argument("--max-chars", type=int, default=0, help="truncate output (0 = no limit)")
     ap.add_argument("--timeout", type=int, default=20)
+    ap.add_argument("--retries", type=int, default=2, help="retries on 429/5xx/network (default 2)")
     args = ap.parse_args(argv)
 
     if not args.url.lower().startswith(("http://", "https://")):
         _err("url must start with http:// or https://", 2)
+    if args.retries < 0:
+        _err("--retries must be >= 0", 2)
 
     try:
-        raw, ctype = fetch(args.url, args.timeout)
+        raw, ctype = fetch(args.url, args.timeout, args.retries)
     except Exception as e:  # noqa: BLE001 - surface network/fetch failures cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable

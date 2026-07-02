@@ -30,8 +30,13 @@ import argparse
 import json
 import os
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
+
+# HTTP statuses worth retrying (transient server / rate-limit conditions).
+_RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 def _err(msg: str, code: int) -> "None":
@@ -39,7 +44,7 @@ def _err(msg: str, code: int) -> "None":
     sys.exit(code)
 
 
-def search_searxng(query: str, n: int, timeout: int) -> list[dict]:
+def search_searxng(query: str, n: int, timeout: int, retries: int = 2) -> list[dict]:
     base = os.environ.get("SEARXNG_URL", "").rstrip("/")
     if not base:
         raise RuntimeError("SEARXNG_URL not set")
@@ -53,8 +58,21 @@ def search_searxng(query: str, n: int, timeout: int) -> list[dict]:
         params["language"] = lang
     url = f"{base}/search?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "openclaw-web-search/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read().decode("utf-8", "replace"))
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in _RETRY_STATUS and attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
     out = []
     for r in data.get("results", [])[:n]:
         out.append({
@@ -87,14 +105,14 @@ def search_ddg(query: str, n: int, timeout: int) -> list[dict]:
     return out
 
 
-def run(query: str, n: int, backend: str, timeout: int) -> list[dict]:
+def run(query: str, n: int, backend: str, timeout: int, retries: int = 2) -> list[dict]:
     have_searxng = bool(os.environ.get("SEARXNG_URL"))
     if backend == "auto":
         backend = "searxng" if have_searxng else "ddg"
     if backend == "searxng":
-        return search_searxng(query, n, timeout)
+        return search_searxng(query, n, timeout, retries)
     if backend == "ddg":
-        return search_ddg(query, n, timeout)
+        return search_ddg(query, n, timeout)  # ddgs handles its own retries
     raise ValueError(f"unknown backend: {backend}")
 
 
@@ -119,15 +137,18 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--format", choices=["md", "json"], default="md", help="output format")
     ap.add_argument("--backend", choices=["auto", "searxng", "ddg"], default="auto")
     ap.add_argument("--timeout", type=int, default=15, help="per-request timeout seconds")
+    ap.add_argument("--retries", type=int, default=2, help="SearXNG retries on 429/5xx/network (default 2)")
     args = ap.parse_args(argv)
 
     if not args.query.strip():
         _err("empty query", 2)
     if args.num < 1 or args.num > 50:
         _err("--num must be between 1 and 50", 2)
+    if args.retries < 0:
+        _err("--retries must be >= 0", 2)
 
     try:
-        results = run(args.query, args.num, args.backend, args.timeout)
+        results = run(args.query, args.num, args.backend, args.timeout, args.retries)
     except Exception as e:  # noqa: BLE001 - surface any backend/network failure cleanly
         _err(f"{type(e).__name__}: {e}", 4)
         return 4  # unreachable, keeps type checkers happy
